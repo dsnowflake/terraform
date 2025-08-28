@@ -2,7 +2,7 @@ variable "environment" {
   description = "Environment name (devel, stage, prod)"
   type        = string
 }
-#test
+
 variable "app_name" {
   description = "Name of the application"
   type        = string
