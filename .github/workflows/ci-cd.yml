@@ -1,0 +1,220 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ feature/*, bugfix/*, devel, stage, prod ]
+  pull_request:
+    branches: [ devel, stage, prod ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.0.0
+      
+      - name: Terraform Format Check
+        run: |
+          cd terraform
+          terraform fmt -check -recursive
+      
+      - name: Validate Terraform Modules
+        run: |
+          cd terraform/modules/s3_cloudfront
+          terraform init -backend=false
+          terraform validate
+
+  branch-protection:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Check PR source and target branches
+        run: |
+          PR_SOURCE="${{ github.head_ref }}"
+          PR_TARGET="${{ github.base_ref }}"
+          
+          if [[ "$PR_TARGET" == "devel" && ! "$PR_SOURCE" =~ ^(feature/|bugfix/) ]]; then
+            echo "Error: PRs to devel must come from feature/* or bugfix/* branches"
+            exit 1
+          fi
+          
+          if [[ "$PR_TARGET" == "stage" && "$PR_SOURCE" != "devel" ]]; then
+            echo "Error: PRs to stage must come from devel branch"
+            exit 1
+          fi
+          
+          if [[ "$PR_TARGET" == "prod" && "$PR_SOURCE" != "stage" ]]; then
+            echo "Error: PRs to prod must come from stage branch"
+            exit 1
+          fi
+
+  deploy-devel:
+    needs: [validate]
+    if: github.ref == 'refs/heads/devel'
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      TF_VAR_challenge_end_date: ${{ secrets.CHALLENGE_END_DATE }}
+    
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.0.0
+      
+      - name: Terraform Init
+        run: |
+          cd terraform/environments/devel
+          terraform init
+      
+      - name: Terraform Plan
+        run: |
+          cd terraform/environments/devel
+          terraform plan -var="app_name=myapp"
+      
+      - name: Terraform Apply
+        run: |
+          cd terraform/environments/devel
+          terraform apply -auto-approve -var="app_name=myapp"
+      
+      - name: Deploy Application
+        run: |
+          # Create a sample index.html file
+          echo "<html><body><h1>Development Environment</h1><p>This is the development version of the application.</p></body></html>" > index.html
+          
+          # Get the S3 bucket name from Terraform output
+          BUCKET_NAME=$(cd terraform/environments/devel && terraform output -raw app_bucket_name)
+          
+          # Upload the file to S3
+          aws s3 cp index.html s3://$BUCKET_NAME/index.html
+          
+          # Get the CloudFront domain
+          CLOUDFRONT_DOMAIN=$(cd terraform/environments/devel && terraform output -raw cloudfront_domain)
+          
+          echo "Application deployed to https://$CLOUDFRONT_DOMAIN"
+
+  deploy-stage:
+    needs: [validate]
+    if: github.ref == 'refs/heads/stage'
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      TF_VAR_challenge_end_date: ${{ secrets.CHALLENGE_END_DATE }}
+    
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.0.0
+      
+      - name: Terraform Init
+        run: |
+          cd terraform/environments/stage
+          terraform init
+      
+      - name: Terraform Plan
+        run: |
+          cd terraform/environments/stage
+          terraform plan -var="app_name=myapp"
+      
+      - name: Terraform Apply
+        run: |
+          cd terraform/environments/stage
+          terraform apply -auto-approve -var="app_name=myapp"
+      
+      - name: Deploy Application
+        run: |
+          # Create a sample index.html file
+          echo "<html><body><h1>Staging Environment</h1><p>This is the staging version of the application.</p></body></html>" > index.html
+          
+          # Get the S3 bucket name from Terraform output
+          BUCKET_NAME=$(cd terraform/environments/stage && terraform output -raw app_bucket_name)
+          
+          # Upload the file to S3
+          aws s3 cp index.html s3://$BUCKET_NAME/index.html
+          
+          # Get the CloudFront domain
+          CLOUDFRONT_DOMAIN=$(cd terraform/environments/stage && terraform output -raw cloudfront_domain)
+          
+          echo "Application deployed to https://$CLOUDFRONT_DOMAIN"
+
+  deploy-prod:
+    needs: [validate]
+    if: github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      TF_VAR_challenge_end_date: ${{ secrets.CHALLENGE_END_DATE }}
+    
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.0.0
+      
+      - name: Terraform Init
+        run: |
+          cd terraform/environments/prod
+          terraform init
+      
+      - name: Terraform Plan
+        run: |
+          cd terraform/environments/prod
+          terraform plan -var="app_name=myapp"
+      
+      - name: Terraform Apply
+        run: |
+          cd terraform/environments/prod
+          terraform apply -auto-approve -var="app_name=myapp"
+      
+      - name: Deploy Application
+        run: |
+          # Create a sample index.html file
+          echo "<html><body><h1>Production Environment</h1><p>This is the production version of the application.</p></body></html>" > index.html
+          
+          # Get the S3 bucket name from Terraform output
+          BUCKET_NAME=$(cd terraform/environments/prod && terraform output -raw app_bucket_name)
+          
+          # Upload the file to S3
+          aws s3 cp index.html s3://$BUCKET_NAME/index.html
+          
+          # Get the CloudFront domain
+          CLOUDFRONT_DOMAIN=$(cd terraform/environments/prod && terraform output -raw cloudfront_domain)
+          
+          echo "Application deployed to https://$CLOUDFRONT_DOMAIN"
+
+  # This job runs for feature and bugfix branches to validate the changes
+  validate-feature-branch:
+    if: startsWith(github.ref, 'refs/heads/feature/') || startsWith(github.ref, 'refs/heads/bugfix/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.0.0
+      
+      - name: Validate Terraform Files
+        run: |
+          cd terraform/modules/s3_cloudfront
+          terraform init -backend=false
+          terraform validate
+      
+      - name: Echo Branch Name
+        run: |
+          echo "Feature/bugfix branch validated: ${{ github.ref }}"
+          echo "Create a pull request to merge these changes into the devel branch."
