@@ -6,7 +6,7 @@ variable "environment" {
 variable "app_name" {
   description = "Name of the application"
   type        = string
-  default     = "myapp"
+  default     = "myapp1"
 }
 
 variable "tags" {
